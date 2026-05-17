@@ -7,8 +7,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 import org.junit.Assert.*
-import java.lang.Thread.sleep
+import org.json.JSONArray
 import java.time.Instant
+import java.util.UUID
 
 /**
  * Instrumented test, which will execute on an Android device.
@@ -17,6 +18,18 @@ import java.time.Instant
  */
 @RunWith(AndroidJUnit4::class)
 class BasicTest {
+    private fun newBucketId(): String = "test-${UUID.randomUUID()}"
+
+    private fun hasEventWithData(events: JSONArray, key: String, value: String): Boolean {
+        for (i in 0 until events.length()) {
+            val event = events.getJSONObject(i)
+            if (event.optJSONObject("data")?.optString(key) == value) {
+                return true
+            }
+        }
+        return false
+    }
+
     @Test
     fun useAppContext() {
         // Context of the app under test.
@@ -26,23 +39,24 @@ class BasicTest {
 
     @Test
     fun getBuckets() {
-        // TODO: Clear test buckets before test
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         val ri = RustInterface(appContext)
-        val bucketId = "test-${Math.random()}"
-        val oldLen = ri.getBucketsJSON().length()
+        val bucketId = newBucketId()
         ri.createBucket("""{"id": "$bucketId", "type": "test", "hostname": "test", "client": "test"}""")
-        assertEquals(oldLen + 1, ri.getBucketsJSON().length())
+        assertTrue("Expected bucket $bucketId to be present", ri.getBucketsJSON().has(bucketId))
     }
 
     @Test
     fun createHeartbeat() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         val ri = RustInterface(appContext)
-        val bucketId = "test-${Math.random()}"
+        val bucketId = newBucketId()
         ri.createBucket("""{"id": "$bucketId", "type": "test", "hostname": "test", "client": "test"}""")
-        val oldLen = ri.getEventsJSON(bucketId, 3).length()
+        assertTrue("Expected bucket $bucketId to be present", ri.getBucketsJSON().has(bucketId))
         ri.heartbeat(bucketId, """{"timestamp": "${Instant.now()}", "duration": 0, "data": {"key": "value"}}""", 1.0)
-        assertEquals(oldLen + 1, ri.getEventsJSON(bucketId, 3).length())
+        assertTrue(
+            "Expected a heartbeat with key=value in bucket $bucketId",
+            hasEventWithData(ri.getEventsJSON(bucketId, 3), "key", "value")
+        )
     }
 }
