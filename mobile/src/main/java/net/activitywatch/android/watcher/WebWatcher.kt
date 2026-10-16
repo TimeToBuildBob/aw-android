@@ -88,6 +88,8 @@ class WebWatcher : AccessibilityService() {
             extractTextByViewId(event, "com.opera.browser:id/url_field")
                 ?: extractTextByViewId(event, "com.opera.browser:id/address_field")
         "com.microsoft.emmx" -> extractTextByViewId(event, "com.microsoft.emmx:id/url_bar")
+        "com.brave.browser" -> extractTextByViewId(event, "com.brave.browser:id/url_bar")
+        "com.vivaldi.browser" -> extractTextByViewId(event, "com.vivaldi.browser:id/url_bar")
         else -> null
     }?.let(stripProtocol)
 
@@ -281,7 +283,9 @@ class WebWatcher : AccessibilityService() {
             "org.mozilla.firefox",
             "com.sec.android.app.sbrowser",
             "com.opera.browser",
-            "com.microsoft.emmx"
+            "com.microsoft.emmx",
+            "com.brave.browser",
+            "com.vivaldi.browser"
         )
     }
 }
