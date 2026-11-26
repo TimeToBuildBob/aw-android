@@ -29,8 +29,10 @@ class NotifyWorkerExecutionTest {
     private class FakeBackend(
         private val setting: String,
         private val failIngest: Boolean = false,
+        private val startOfDay: String = "4",
     ) : NotifyBackend {
         val calls = mutableListOf<String>()
+        var queriedTimeperiod: String? = null
 
         override fun checkServer() {
             calls += "server"
@@ -38,11 +40,12 @@ class NotifyWorkerExecutionTest {
 
         override fun getSetting(key: String): String {
             calls += key
-            return if (key == "aw-notify") setting else "4"
+            return if (key == "aw-notify") setting else startOfDay
         }
 
         override fun androidQuery(timeperiod: String): String {
             calls += "query"
+            queriedTimeperiod = timeperiod
             return """[{"cat_events":[{"duration":120,"data":{"${'$'}category":["Work"]}}]}]"""
         }
 
@@ -129,6 +132,17 @@ class NotifyWorkerExecutionTest {
         assertEquals(ListenableWorker.Result.success(), runWorker(backend))
         assertEquals(listOf("server", "aw-notify", "ingest", "startOfDay", "query"), backend.calls)
         assertEquals(1, notificationCount())
+    }
+
+    @Test
+    fun activityQueryPreservesStartOfDayMinutes() {
+        val backend = FakeBackend(
+            """{"enabled":true,"alerts":[{"category":"Work","thresholds_minutes":[1]}]}""",
+            startOfDay = "\"04:30\"",
+        )
+        assertEquals(ListenableWorker.Result.success(), runWorker(backend))
+        val endpoints = org.json.JSONArray(backend.queriedTimeperiod!!).getString(0).split('/')
+        assertEquals(listOf(30, 30), endpoints.map { org.threeten.bp.OffsetDateTime.parse(it).minute })
     }
 
     @Test

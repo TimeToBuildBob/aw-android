@@ -33,7 +33,7 @@ import org.threeten.bp.format.DateTimeParseException
 private const val TAG = "NotifyWorker"
 private const val CHANNEL_ID = "aw_notify_channel"
 private const val PREFS_NAME = "aw_notify_prefs"
-private const val DEFAULT_START_OF_DAY_HOUR = 4
+private val DEFAULT_START_OF_DAY = LocalTime.of(4, 0)
 
 // PendingIntent identity ignores extras and Intent launch flags, so a request code
 // shared with another MainActivity PendingIntent resolves to that existing instance
@@ -57,8 +57,6 @@ private val DEFAULT_ALERTS = listOf(
     CategoryAlert("YouTube",  "📺 YouTube", listOf(30, 60)),
 )
 
-internal fun logicalDayDate(now: ZonedDateTime, startOfDayHour: Int): LocalDate =
-    logicalDate(now, LocalTime.of(startOfDayHour, 0))
 
 internal fun parseAlerts(json: String): List<CategoryAlert> = parseAlertArray(JSONArray(json), legacy = true)
 
@@ -134,14 +132,17 @@ internal fun notifyOptInMigrationValue(current: String, isUpgrade: Boolean): Str
     return config.put("enabled", true).toString()
 }
 
-internal fun parseStartOfDayHour(response: String): Int {
+internal fun parseStartOfDay(response: String): LocalTime {
     val value = response.trim()
-    val hour = when {
-        value == "null" -> null
-        value.startsWith("\"") -> value.trim('"').split(":").firstOrNull()?.toIntOrNull()
-        else -> value.toIntOrNull()
+    val parts = if (value.startsWith('"') && value.endsWith('"')) {
+        value.removeSurrounding("\"").split(':')
+    } else {
+        listOf(value) // Legacy integer hour
     }
-    return hour?.takeIf { it in 0..23 } ?: DEFAULT_START_OF_DAY_HOUR
+    if (parts.size > 2) return DEFAULT_START_OF_DAY
+    val hour = parts[0].toIntOrNull() ?: return DEFAULT_START_OF_DAY
+    val minute = if (parts.size == 2) parts[1].toIntOrNull() ?: return DEFAULT_START_OF_DAY else 0
+    return if (hour in 0..23 && minute in 0..59) LocalTime.of(hour, minute) else DEFAULT_START_OF_DAY
 }
 
 // Include thresholds in the pref key so state resets when configuration changes.
@@ -285,10 +286,10 @@ class NotifyWorker internal constructor(
                 Log.w(TAG, "Failed to ingest usage events before checking thresholds", e)
             }
             val zone = ZoneId.systemDefault()
-            val startOfDayHour = parseStartOfDayHour(backend.getSetting("startOfDay"))
-            val now = ZonedDateTime.now(zone)
-            val categorySeconds = getCategorySecondsToday(backend, now, zone, startOfDayHour)
-            checkAndNotify(categorySeconds, logicalDayDate(now, startOfDayHour), alerts)
+            val startOfDayTime = parseStartOfDay(backend.getSetting("startOfDay"))
+            val date = logicalDate(ZonedDateTime.now(zone), startOfDayTime)
+            val categorySeconds = getCategorySecondsToday(backend, date, zone, startOfDayTime)
+            checkAndNotify(categorySeconds, date, alerts)
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Error checking notification thresholds", e)
@@ -298,13 +299,12 @@ class NotifyWorker internal constructor(
 
     private fun getCategorySecondsToday(
         backend: NotifyBackend,
-        now: ZonedDateTime,
+        date: LocalDate,
         zone: ZoneId,
-        startOfDayHour: Int,
+        startOfDayTime: LocalTime,
     ): Map<String?, Double> {
         val formatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
-        val logicalDate = logicalDayDate(now, startOfDayHour)
-        val (startOfDay, endOfDay) = logicalDayWindow(logicalDate, LocalTime.of(startOfDayHour, 0), zone)
+        val (startOfDay, endOfDay) = logicalDayWindow(date, startOfDayTime, zone)
 
         val timeperiod = "[\"${formatter.format(startOfDay)}/${formatter.format(endOfDay)}\"]"
         Log.d(TAG, "Querying timeperiod: $timeperiod")
